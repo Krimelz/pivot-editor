@@ -1,7 +1,6 @@
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
-using UnityEngine.SceneManagement;
 
 namespace Editor
 {
@@ -39,6 +38,7 @@ namespace Editor
         private void OnEnable()
         {
             SceneView.duringSceneGui += OnSceneGUI;
+            Selection.selectionChanged += Repaint;
 
             _shift = Vector3.zero;
             _points = new Vector3[8];
@@ -48,6 +48,7 @@ namespace Editor
         private void OnDisable()
         {
             SceneView.duringSceneGui -= OnSceneGUI;
+            Selection.selectionChanged += Repaint;
 
             _shift = Vector3.zero;
             _points = null;
@@ -73,7 +74,7 @@ namespace Editor
             if (EditorGUI.EndChangeCheck())
             {
                 _selectedLevel = selectedLevel;
-                AlignPivot(selected);
+                DrawPivot();
             }
             GUILayout.EndVertical();
             
@@ -84,7 +85,7 @@ namespace Editor
             if (EditorGUI.EndChangeCheck())
             {
                 _selectedCorner = selectedCorner;
-                AlignPivot(selected);
+                DrawPivot();
             }
             GUILayout.EndVertical();
         
@@ -94,7 +95,9 @@ namespace Editor
 
             if (prefabAsset && GUILayout.Button("Save prefab"))
             {
+                AlignPivot(selected);
                 SavePrefab(selected, prefabAsset.gameObject);
+                ApplyChangesInScene(selected, prefabAsset.gameObject);
             }
         }
 
@@ -132,6 +135,12 @@ namespace Editor
 
             CalcAligns();
             DrawAligns();
+            
+            DrawPivot();
+            
+                        
+            Handles.color = Color.magenta;
+            Handles.DrawLine(Vector3.zero, selected.InverseTransformPoint(_aligns[_selectedLevel * _corners.Length + _selectedCorner]));
             
             sceneView.Repaint();
         }
@@ -234,19 +243,27 @@ namespace Editor
 
             foreach (var align in _aligns)
             {
-                Handles.DrawWireCube(align, Vector3.one * 0.2f);
+                Handles.DrawWireCube(align, Vector3.one * 0.1f);
             }
+        }
+
+        private void DrawPivot()
+        {
+            var align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
+            
+            Handles.color = Color.red;
+            Handles.DrawWireCube(align, Vector3.one * 0.1f);
         }
         
         private void AlignPivot(Transform selected)
         {
             var align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
-            _shift = selected.position - align;
+            _shift = selected.InverseTransformPoint(align);
             
             for (var i = 0; i < selected.childCount; i++)
             {
                 var child = selected.GetChild(i);
-                child.position += _shift;
+                child.position += selected.position - align;
             }
 
             selected.position = align;
@@ -272,15 +289,17 @@ namespace Editor
             
             EditorSceneManager.MarkSceneDirty(prefabStage.scene);
             StageUtility.GoToMainStage();
-            
-            var instances = PrefabUtility.FindAllInstancesOfPrefab(prefabAsset.gameObject, SceneManager.GetActiveScene());
+        }
+
+        private void ApplyChangesInScene(Transform selected, GameObject prefabAsset)
+        {
+            var instances = PrefabUtility.FindAllInstancesOfPrefab(prefabAsset.gameObject);
             
             foreach (var instance in instances)
             {
-                if (instance.gameObject != selected.gameObject) // TODO: Стравнивать не по имени
+                if (instance.gameObject != selected.gameObject)
                 {
-                    Debug.Log("Aboba");
-                    instance.transform.position -= _shift;
+                    instance.transform.position += instance.transform.rotation * _shift;
                 }
             }
         }
