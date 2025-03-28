@@ -48,7 +48,7 @@ namespace Editor
         private void OnDisable()
         {
             SceneView.duringSceneGui -= OnSceneGUI;
-            Selection.selectionChanged += Repaint;
+            Selection.selectionChanged -= Repaint;
 
             _shift = Vector3.zero;
             _points = null;
@@ -93,11 +93,15 @@ namespace Editor
             
             var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(selected);
 
-            if (prefabAsset && GUILayout.Button("Save prefab"))
+            if (GUILayout.Button("Save"))
             {
                 AlignPivot(selected);
-                SavePrefab(selected, prefabAsset.gameObject);
-                ApplyChangesInScene(selected, prefabAsset.gameObject);
+
+                if (prefabAsset)
+                {
+                    SavePrefab(selected, prefabAsset.gameObject);
+                    ApplyChangesInScene(selected, prefabAsset.gameObject);
+                }
             }
         }
 
@@ -106,11 +110,6 @@ namespace Editor
             var selected = Selection.activeTransform;
 
             if (selected == null)
-            {
-                return;
-            }
-
-            if (selected.TryGetComponent<Renderer>(out _))
             {
                 return;
             }
@@ -137,10 +136,6 @@ namespace Editor
             DrawAligns();
             
             DrawPivot();
-            
-                        
-            Handles.color = Color.magenta;
-            Handles.DrawLine(Vector3.zero, selected.InverseTransformPoint(_aligns[_selectedLevel * _corners.Length + _selectedCorner]));
             
             sceneView.Repaint();
         }
@@ -267,7 +262,31 @@ namespace Editor
             }
 
             selected.position = align;
-        }
+
+			for (var i = 0; i < selected.childCount; i++)
+			{
+				var child = selected.GetChild(i);
+
+				var meshFilter = child.GetComponent<MeshFilter>();
+				if (meshFilter == null) continue;
+
+				var rootLocalPosition = child.InverseTransformPoint(selected.position);
+
+				var mesh = Instantiate(meshFilter.sharedMesh);
+				var vertices = mesh.vertices;
+
+				for (int j = 0; j < vertices.Length; j++)
+				{
+					vertices[j] -= rootLocalPosition;
+				}
+
+				mesh.vertices = vertices;
+				mesh.RecalculateBounds();
+				meshFilter.sharedMesh = mesh;
+
+				child.localPosition += rootLocalPosition;
+			}
+		}
 
         private void SavePrefab(Transform selected, GameObject prefabAsset)
         {
