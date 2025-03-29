@@ -1,6 +1,8 @@
 using UnityEngine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
+using UnityEngine.ProBuilder;
+using System.Linq;
 
 namespace Editor
 {
@@ -96,8 +98,9 @@ namespace Editor
             if (GUILayout.Button("Save"))
             {
                 AlignPivot(selected);
+                AlignChildenPivotToRoot(selected);
 
-                if (prefabAsset)
+				if (prefabAsset)
                 {
                     SavePrefab(selected, prefabAsset.gameObject);
                     ApplyChangesInScene(selected, prefabAsset.gameObject);
@@ -262,27 +265,40 @@ namespace Editor
             }
 
             selected.position = align;
+		}
 
+        private void AlignChildenPivotToRoot(Transform selected)
+        {
 			for (var i = 0; i < selected.childCount; i++)
 			{
 				var child = selected.GetChild(i);
-
-				var meshFilter = child.GetComponent<MeshFilter>();
-				if (meshFilter == null) continue;
-
 				var rootLocalPosition = child.InverseTransformPoint(selected.position);
 
-				var mesh = Instantiate(meshFilter.sharedMesh);
-				var vertices = mesh.vertices;
+                if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
+                {
+					var vertices = proBuilderMesh.positions.ToArray();
 
-				for (int j = 0; j < vertices.Length; j++)
-				{
-					vertices[j] -= rootLocalPosition;
+					for (int j = 0; j < vertices.Length; j++)
+					{
+						vertices[j] -= rootLocalPosition;
+					}
+
+					proBuilderMesh.positions = vertices;
+					proBuilderMesh.ToMesh();
+					proBuilderMesh.Refresh();
 				}
+                else if (child.TryGetComponent(out MeshFilter meshFilter))
+                {
+					var vertices = meshFilter.sharedMesh.vertices;
 
-				mesh.vertices = vertices;
-				mesh.RecalculateBounds();
-				meshFilter.sharedMesh = mesh;
+					for (int j = 0; j < vertices.Length; j++)
+					{
+						vertices[j] -= rootLocalPosition;
+					}
+
+					meshFilter.sharedMesh.vertices = vertices;
+                    meshFilter.sharedMesh.RecalculateBounds();
+				}
 
 				child.localPosition += rootLocalPosition;
 			}
