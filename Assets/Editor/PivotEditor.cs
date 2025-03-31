@@ -354,23 +354,19 @@ namespace Editor
 
 		private void OnUndoRedo(in UndoRedoInfo info)
 		{
-            if (info.undoName == UNDO_GROUP_NAME)
+            if (_undoStates.TryGetValue(info.undoGroup, out var value))
             {
-                if (_undoStates.TryGetValue(info.undoGroup, out var value))
-                {
-					var shift = AlignPivot(value.t, value.align);
-                    Debug.Log(shift);
-					//AlignChildenPivotToRoot(value.t);
+				var shift = AlignPivot(value.t, value.align);
+				AlignChildenPivotToRoot(value.t);
 
-					var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(value.t);
+				var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(value.t);
 
-					if (prefabAsset)
-					{
-						SavePrefab(value.t, prefabAsset.gameObject);
-						ApplyChangesInScene(value.t, prefabAsset.gameObject, shift);
-					}
+				if (prefabAsset)
+				{
+					SavePrefab(value.t, prefabAsset.gameObject);
+					ApplyChangesInScene(value.t, prefabAsset.gameObject, shift);
 				}
-            }
-		}
+			}
+	    }
 	}
 }
