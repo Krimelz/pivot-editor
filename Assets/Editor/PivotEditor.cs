@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine.ProBuilder;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace Editor
@@ -10,13 +11,13 @@ namespace Editor
     {
         private Vector3 _min;
         private Vector3 _max;
-        private Vector3 _shift;
         private Vector3[] _points;
         private Vector3[] _aligns;
         private int _selectedLevel;
         private int _selectedCorner;
-        
-        private readonly string[] _levels =
+        private Dictionary<int, (Transform t, Vector3 align)> _undoStates;
+
+		private readonly string[] _levels =
         {
             "Top", 
             "Mid", 
@@ -28,6 +29,8 @@ namespace Editor
             "*", "*", "*",
             "*", "*", "*",
         };
+
+        private const string UNDO_GROUP_NAME = "Pivot Changing";
         
         [MenuItem("Tools/Pivot Editor")]
         public static void ShowWindow()
@@ -41,21 +44,23 @@ namespace Editor
         {
             SceneView.duringSceneGui += OnSceneGUI;
             Selection.selectionChanged += Repaint;
+			Undo.undoRedoEvent += OnUndoRedo;
 
-            _shift = Vector3.zero;
-            _points = new Vector3[8];
+			_points = new Vector3[8];
             _aligns = new Vector3[_levels.Length * _corners.Length];
+            _undoStates = new Dictionary<int, (Transform t, Vector3 align)>();
         }
 
         private void OnDisable()
         {
             SceneView.duringSceneGui -= OnSceneGUI;
             Selection.selectionChanged -= Repaint;
+			Undo.undoRedoEvent -= OnUndoRedo;
 
-            _shift = Vector3.zero;
-            _points = null;
+			_points = null;
             _aligns = null;
-        }
+			_undoStates.Clear();
+		}
 
         private void OnGUI()
         {
@@ -68,9 +73,8 @@ namespace Editor
             }
             
             GUILayout.BeginHorizontal();
-            
             GUILayout.BeginVertical();
-            GUILayout.Label("Select level:", EditorStyles.boldLabel);
+            GUILayout.Label("Select level (Y):", EditorStyles.boldLabel);
             EditorGUI.BeginChangeCheck();
             var selectedLevel = GUILayout.SelectionGrid(_selectedLevel, _levels, 1);
             if (EditorGUI.EndChangeCheck())
@@ -81,7 +85,7 @@ namespace Editor
             GUILayout.EndVertical();
             
             GUILayout.BeginVertical();
-            GUILayout.Label("Select corner:", EditorStyles.boldLabel);
+            GUILayout.Label("Select corner (XZ):", EditorStyles.boldLabel);
             EditorGUI.BeginChangeCheck();
             var selectedCorner = GUILayout.SelectionGrid(_selectedCorner, _corners, 3);
             if (EditorGUI.EndChangeCheck())
@@ -93,22 +97,30 @@ namespace Editor
         
             GUILayout.EndHorizontal();
             
-            var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(selected);
-
-            if (GUILayout.Button("Save"))
+            if (GUILayout.Button("Change and Save"))
             {
-                AlignPivot(selected);
+                Undo.IncrementCurrentGroup();
+                Undo.SetCurrentGroupName(UNDO_GROUP_NAME);
+                int group = Undo.GetCurrentGroup();
+                _undoStates.Add(group, (selected, selected.position));
+
+				var align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
+				var shift = AlignPivot(selected, align);
                 AlignChildenPivotToRoot(selected);
+
+				var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(selected);
 
 				if (prefabAsset)
                 {
                     SavePrefab(selected, prefabAsset.gameObject);
-                    ApplyChangesInScene(selected, prefabAsset.gameObject);
+                    ApplyChangesInScene(selected, prefabAsset.gameObject, shift);
                 }
-            }
+
+                Undo.CollapseUndoOperations(group);
+			}
         }
 
-        private void OnSceneGUI(SceneView sceneView)
+		private void OnSceneGUI(SceneView sceneView)
         {
             var selected = Selection.activeTransform;
 
@@ -253,18 +265,19 @@ namespace Editor
             Handles.DrawWireCube(align, Vector3.one * 0.1f);
         }
         
-        private void AlignPivot(Transform selected)
+        private Vector3 AlignPivot(Transform selected, Vector3 align)
         {
-            var align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
-            _shift = selected.InverseTransformPoint(align);
+            var shift = selected.InverseTransformPoint(align);
             
             for (var i = 0; i < selected.childCount; i++)
             {
                 var child = selected.GetChild(i);
-                child.position += selected.position - align;
+				child.position += selected.position - align;
             }
 
             selected.position = align;
+
+            return shift;
 		}
 
         private void AlignChildenPivotToRoot(Transform selected)
@@ -274,7 +287,7 @@ namespace Editor
 				var child = selected.GetChild(i);
 				var rootLocalPosition = child.InverseTransformPoint(selected.position);
 
-                if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
+				if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
                 {
 					var vertices = proBuilderMesh.positions.ToArray();
 
@@ -297,7 +310,7 @@ namespace Editor
 					}
 
 					meshFilter.sharedMesh.vertices = vertices;
-                    meshFilter.sharedMesh.RecalculateBounds();
+					meshFilter.sharedMesh.RecalculateBounds();
 				}
 
 				child.localPosition += rootLocalPosition;
@@ -318,25 +331,46 @@ namespace Editor
             }
                 
             var prefabRoot = prefabStage.prefabContentsRoot;
-            
-            prefabRoot.transform.position = Vector3.zero;
+
+			prefabRoot.transform.position = Vector3.zero;
             prefabRoot.transform.rotation = Quaternion.identity;
             
             EditorSceneManager.MarkSceneDirty(prefabStage.scene);
             StageUtility.GoToMainStage();
         }
 
-        private void ApplyChangesInScene(Transform selected, GameObject prefabAsset)
+        private void ApplyChangesInScene(Transform selected, GameObject prefabAsset, Vector3 shift)
         {
             var instances = PrefabUtility.FindAllInstancesOfPrefab(prefabAsset.gameObject);
-            
-            foreach (var instance in instances)
+
+			foreach (var instance in instances)
             {
                 if (instance.gameObject != selected.gameObject)
                 {
-                    instance.transform.position += instance.transform.rotation * _shift;
+					instance.transform.position += instance.transform.rotation * shift;
                 }
             }
         }
-    }
+
+		private void OnUndoRedo(in UndoRedoInfo info)
+		{
+            if (info.undoName == UNDO_GROUP_NAME)
+            {
+                if (_undoStates.TryGetValue(info.undoGroup, out var value))
+                {
+					var shift = AlignPivot(value.t, value.align);
+                    Debug.Log(shift);
+					//AlignChildenPivotToRoot(value.t);
+
+					var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(value.t);
+
+					if (prefabAsset)
+					{
+						SavePrefab(value.t, prefabAsset.gameObject);
+						ApplyChangesInScene(value.t, prefabAsset.gameObject, shift);
+					}
+				}
+            }
+		}
+	}
 }
