@@ -15,7 +15,6 @@ namespace Editor
         private Vector3[] _aligns;
         private int _selectedLevel;
         private int _selectedCorner;
-        private Dictionary<int, (Transform t, Vector3 align)> _undoStates;
 
 		private readonly string[] _levels =
         {
@@ -44,22 +43,18 @@ namespace Editor
         {
             SceneView.duringSceneGui += OnSceneGUI;
             Selection.selectionChanged += Repaint;
-			Undo.undoRedoEvent += OnUndoRedo;
 
 			_points = new Vector3[8];
             _aligns = new Vector3[_levels.Length * _corners.Length];
-            _undoStates = new Dictionary<int, (Transform t, Vector3 align)>();
         }
 
         private void OnDisable()
         {
             SceneView.duringSceneGui -= OnSceneGUI;
             Selection.selectionChanged -= Repaint;
-			Undo.undoRedoEvent -= OnUndoRedo;
 
 			_points = null;
             _aligns = null;
-			_undoStates.Clear();
 		}
 
         private void OnGUI()
@@ -102,7 +97,6 @@ namespace Editor
                 Undo.IncrementCurrentGroup();
                 Undo.SetCurrentGroupName(UNDO_GROUP_NAME);
                 int group = Undo.GetCurrentGroup();
-                _undoStates.Add(group, (selected, selected.position));
 
 				var align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
 				var shift = AlignPivot(selected, align);
@@ -267,9 +261,12 @@ namespace Editor
         
         private Vector3 AlignPivot(Transform selected, Vector3 align)
         {
-            var shift = selected.InverseTransformPoint(align);
-            
-            for (var i = 0; i < selected.childCount; i++)
+			var children = selected.GetComponentsInChildren<Transform>();
+			Undo.RecordObjects(children.ToArray(), "Align Pivot");
+
+			var shift = selected.InverseTransformPoint(align);
+
+			for (var i = 0; i < selected.childCount; i++)
             {
                 var child = selected.GetChild(i);
 				child.position += selected.position - align;
@@ -282,6 +279,24 @@ namespace Editor
 
         private void AlignChildenPivotToRoot(Transform selected)
         {
+			var objectsToRecord = new List<Object>();
+			for (var i = 0; i < selected.childCount; i++)
+			{
+				var child = selected.GetChild(i);
+				objectsToRecord.Add(child);
+
+				if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
+				{
+					objectsToRecord.Add(proBuilderMesh);
+				}
+				else if (child.TryGetComponent(out MeshFilter meshFilter))
+				{
+					objectsToRecord.Add(meshFilter.sharedMesh);
+				}
+			}
+
+			Undo.RecordObjects(objectsToRecord.ToArray(), "Align Children Pivot");
+
 			for (var i = 0; i < selected.childCount; i++)
 			{
 				var child = selected.GetChild(i);
@@ -319,7 +334,9 @@ namespace Editor
 
         private void SavePrefab(Transform selected, GameObject prefabAsset)
         {
-            PrefabUtility.ApplyPrefabInstance(selected.gameObject, InteractionMode.UserAction);
+			Undo.RegisterCompleteObjectUndo(selected.gameObject, "Save Prefab");
+
+			PrefabUtility.ApplyPrefabInstance(selected.gameObject, InteractionMode.UserAction);
             EditorSceneManager.SaveOpenScenes();
             
             var prefabPath = AssetDatabase.GetAssetPath(prefabAsset);
@@ -342,6 +359,12 @@ namespace Editor
         private void ApplyChangesInScene(Transform selected, GameObject prefabAsset, Vector3 shift)
         {
             var instances = PrefabUtility.FindAllInstancesOfPrefab(prefabAsset.gameObject);
+			var transformsToRecord = instances
+				.Where(instance => instance.gameObject != selected.gameObject)
+				.Select(instance => instance.transform)
+				.ToArray();
+
+			Undo.RecordObjects(transformsToRecord, "Apply Changes in Scene");
 
 			foreach (var instance in instances)
             {
@@ -351,22 +374,5 @@ namespace Editor
                 }
             }
         }
-
-		private void OnUndoRedo(in UndoRedoInfo info)
-		{
-            if (_undoStates.TryGetValue(info.undoGroup, out var value))
-            {
-				var shift = AlignPivot(value.t, value.align);
-				AlignChildenPivotToRoot(value.t);
-
-				var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(value.t);
-
-				if (prefabAsset)
-				{
-					SavePrefab(value.t, prefabAsset.gameObject);
-					ApplyChangesInScene(value.t, prefabAsset.gameObject, shift);
-				}
-			}
-	    }
 	}
 }
