@@ -5,7 +5,7 @@
 
 ![image](https://github.com/user-attachments/assets/ea550604-7ecb-446a-9ff9-48b63d4e6af5)
 
-в открытом окне появится сообщение, что нужно выбрать объект, если он не выбран.
+D открытом окне появится сообщение, что нужно выбрать объект, если он не выбран.
 
 ![image](https://github.com/user-attachments/assets/7843b6bb-34e0-4e33-9092-7c268a1b33d1)
 
