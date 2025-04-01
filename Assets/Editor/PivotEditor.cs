@@ -15,6 +15,7 @@ namespace Editor
         private Vector3[] _aligns;
         private int _selectedLevel;
         private int _selectedCorner;
+        private bool _alignChildrenToRoot;
 
 		private readonly string[] _levels =
         {
@@ -66,7 +67,9 @@ namespace Editor
                 EditorGUILayout.HelpBox("Select object!", MessageType.Info);
                 return;
             }
-            
+
+            _alignChildrenToRoot = GUILayout.Toggle(_alignChildrenToRoot, "Align Children To Root");
+
             GUILayout.BeginHorizontal();
             GUILayout.BeginVertical();
             GUILayout.Label("Select level (Y):", EditorStyles.boldLabel);
@@ -100,7 +103,11 @@ namespace Editor
 
 				var align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
 				var shift = AlignPivot(selected, align);
-                AlignChildenPivotToRoot(selected);
+
+                if (_alignChildrenToRoot)
+                {
+                    AlignChildenPivotToRoot(selected);
+                }
 
 				var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(selected);
 
@@ -145,6 +152,12 @@ namespace Editor
             DrawAligns();
             
             DrawPivot();
+
+            Handles.color = Color.magenta;
+            foreach (var obj in selected.GetComponentsInChildren<Transform>(true))
+            {
+                Handles.DrawLine(_aligns[_selectedLevel * _corners.Length + _selectedCorner], obj.position);
+            }
             
             sceneView.Repaint();
         }
@@ -279,56 +292,55 @@ namespace Editor
 
         private void AlignChildenPivotToRoot(Transform selected)
         {
-			var objectsToRecord = new List<Object>();
-			for (var i = 0; i < selected.childCount; i++)
-			{
-				var child = selected.GetChild(i);
-				objectsToRecord.Add(child);
+            var objectsToRecord = new List<Object>();
+            for (var i = 0; i < selected.childCount; i++)
+            {
+                var child = selected.GetChild(i);
+                objectsToRecord.Add(child);
 
-				if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
-				{
-					objectsToRecord.Add(proBuilderMesh);
-				}
-				else if (child.TryGetComponent(out MeshFilter meshFilter))
-				{
-					objectsToRecord.Add(meshFilter.sharedMesh);
-				}
-			}
-
-			Undo.RecordObjects(objectsToRecord.ToArray(), "Align Children Pivot");
-
-			for (var i = 0; i < selected.childCount; i++)
-			{
-				var child = selected.GetChild(i);
-				var rootLocalPosition = child.InverseTransformPoint(selected.position);
-
-				if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
+                if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
                 {
-					var vertices = proBuilderMesh.positions.ToArray();
-
-					for (int j = 0; j < vertices.Length; j++)
-					{
-						vertices[j] -= rootLocalPosition;
-					}
-
-					proBuilderMesh.positions = vertices;
-					proBuilderMesh.ToMesh();
-					proBuilderMesh.Refresh();
-				}
+                    objectsToRecord.Add(proBuilderMesh);
+                }
                 else if (child.TryGetComponent(out MeshFilter meshFilter))
                 {
-					var vertices = meshFilter.sharedMesh.vertices;
+                    objectsToRecord.Add(meshFilter.sharedMesh);
+                }
+            }
 
-					for (int j = 0; j < vertices.Length; j++)
-					{
-						vertices[j] -= rootLocalPosition;
+            Undo.RecordObjects(objectsToRecord.ToArray(), "Align Children Pivot");
+
+            for (var i = 0; i < selected.childCount; i++)
+			{
+				var child = selected.GetChild(i);
+                var shift = child.localPosition;
+                child.localPosition = Vector3.zero;
+
+                if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
+                {
+                    var vertices = proBuilderMesh.positions.ToArray();
+
+                    for (int j = 0; j < vertices.Length; j++)
+                    {
+                        vertices[j] += selected.rotation * child.InverseTransformVector(shift);
+                    }
+
+                    proBuilderMesh.positions = vertices;
+                    proBuilderMesh.ToMesh();
+                    proBuilderMesh.Refresh();
+                }
+                else if (child.TryGetComponent(out MeshFilter meshFilter))
+                {
+                    var vertices = meshFilter.sharedMesh.vertices;
+
+                    for (int j = 0; j < vertices.Length; j++)
+                    {
+                        vertices[j] += selected.rotation * child.InverseTransformVector(shift);
 					}
 
-					meshFilter.sharedMesh.vertices = vertices;
-					meshFilter.sharedMesh.RecalculateBounds();
-				}
-
-				child.localPosition += rootLocalPosition;
+                    meshFilter.sharedMesh.vertices = vertices;
+                    meshFilter.sharedMesh.RecalculateBounds();
+                }
 			}
 		}
 
