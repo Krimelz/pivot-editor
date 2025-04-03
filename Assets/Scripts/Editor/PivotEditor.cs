@@ -32,12 +32,13 @@ public class PivotEditor : EditorWindow
         "*", "*", "*",
     };
 
+    private const string WINDOW_NAME = "Pivot Editor";
     private const string UNDO_GROUP_NAME = "Pivot Changing";
         
     [MenuItem("Tools/Pivot Editor")]
     public static void ShowWindow()
     {
-        GetWindow<PivotEditor>("Pivot Editor").Show();
+        GetWindow<PivotEditor>(WINDOW_NAME).Show();
     }
 
     private void OnEnable()
@@ -100,9 +101,15 @@ public class PivotEditor : EditorWindow
 		_pivotOffset = EditorGUILayout.Vector3Field("Pivot Position", _pivotOffset);
 		EditorGUI.EndDisabledGroup();
 
+		EditorGUILayout.Separator();
+
 		_enabledCustomPivot = EditorGUILayout.Toggle("Custom Pivot", _enabledCustomPivot);
-		_alignChildrenToRootPosition = EditorGUILayout.Toggle("Align Children To Root Position", _alignChildrenToRootPosition);
-		_alignChildrenToRootRotation = EditorGUILayout.Toggle("Align Children To Root Rotation", _alignChildrenToRootRotation);
+
+		EditorGUILayout.Separator();
+
+		EditorGUILayout.LabelField("Align Children:", EditorStyles.boldLabel);
+		_alignChildrenToRootPosition = EditorGUILayout.Toggle("To Root Position", _alignChildrenToRootPosition);
+		_alignChildrenToRootRotation = EditorGUILayout.Toggle("To Root Rotation", _alignChildrenToRootRotation);
 
 		EditorGUILayout.Separator();
 
@@ -119,6 +126,11 @@ public class PivotEditor : EditorWindow
             if (_alignChildrenToRootPosition)
             {
                 AlignChildenPivotToRoot(selected);
+            }
+
+            if (_alignChildrenToRootRotation)
+            {
+
             }
 
 			var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(selected);
