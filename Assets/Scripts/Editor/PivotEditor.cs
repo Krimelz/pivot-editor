@@ -102,14 +102,15 @@ public class PivotEditor : EditorWindow
 		EditorGUI.EndDisabledGroup();
 
 		EditorGUILayout.Separator();
-
 		_enabledCustomPivot = EditorGUILayout.Toggle("Custom Pivot", _enabledCustomPivot);
-
 		EditorGUILayout.Separator();
 
 		EditorGUILayout.LabelField("Align Children:", EditorStyles.boldLabel);
 		_alignChildrenToRootPosition = EditorGUILayout.Toggle("To Root Position", _alignChildrenToRootPosition);
+
+		EditorGUI.BeginDisabledGroup(true);
 		_alignChildrenToRootRotation = EditorGUILayout.Toggle("To Root Rotation", _alignChildrenToRootRotation);
+		EditorGUI.EndDisabledGroup();
 
 		EditorGUILayout.Separator();
 
@@ -123,15 +124,7 @@ public class PivotEditor : EditorWindow
             var group = Undo.GetCurrentGroup();
 			var shift = AlignPivot(selected, _align);
 
-            if (_alignChildrenToRootPosition)
-            {
-                AlignChildenPivotToRoot(selected);
-            }
-
-            if (_alignChildrenToRootRotation)
-            {
-
-            }
+            AlignChildrenPivotToRoot(selected);
 
 			var prefabAsset = PrefabUtility.GetCorrespondingObjectFromSource(selected);
 
@@ -321,7 +314,7 @@ public class PivotEditor : EditorWindow
         return shift;
 	}
 
-    private void AlignChildenPivotToRoot(Transform selected)
+    private void AlignChildrenPivotToRoot(Transform selected)
     {
         var objectsToRecord = new List<Object>();
         for (var i = 0; i < selected.childCount; i++)
@@ -341,41 +334,100 @@ public class PivotEditor : EditorWindow
 
         Undo.RecordObjects(objectsToRecord.ToArray(), "Align Children Pivot");
 
-        for (var i = 0; i < selected.childCount; i++)
+        if (_alignChildrenToRootPosition)
+        {
+            AlignChildrenPivotToRootPosition(selected);
+        }
+
+        if (_alignChildrenToRootRotation)
+        {
+			AlignChildrenPivotToRootRotation(selected);
+        }
+	}
+
+	private void AlignChildrenPivotToRootPosition(Transform selected)
+	{
+		for (var i = 0; i < selected.childCount; i++)
 		{
 			var child = selected.GetChild(i);
-            var shift = child.localPosition;
-            child.localPosition = Vector3.zero;
+			var shift = child.localPosition;
+			child.localPosition = Vector3.zero;
 
-            if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
-            {
-                var vertices = proBuilderMesh.positions.ToArray();
+			if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
+			{
+				var vertices = proBuilderMesh.positions.ToArray();
 
-                for (int j = 0; j < vertices.Length; j++)
-                {
+				for (int j = 0; j < vertices.Length; j++)
+				{
 					vertices[j] += child.InverseTransformPoint(selected.TransformPoint(shift)) - child.localPosition;
 				}
 
 				proBuilderMesh.positions = vertices;
-                proBuilderMesh.ToMesh();
-                proBuilderMesh.Refresh();
-            }
-            else if (child.TryGetComponent(out MeshFilter meshFilter))
-            {
-                var vertices = meshFilter.sharedMesh.vertices;
+				proBuilderMesh.ToMesh();
+				proBuilderMesh.Refresh();
+			}
+			else if (child.TryGetComponent(out MeshFilter meshFilter))
+			{
+				var vertices = meshFilter.sharedMesh.vertices;
 
-                for (int j = 0; j < vertices.Length; j++)
-                {
+				for (int j = 0; j < vertices.Length; j++)
+				{
 					vertices[j] += child.InverseTransformPoint(selected.TransformPoint(shift)) - child.localPosition;
 				}
 
-                meshFilter.sharedMesh.vertices = vertices;
-                meshFilter.sharedMesh.RecalculateBounds();
-            }
+				meshFilter.sharedMesh.vertices = vertices;
+				meshFilter.sharedMesh.RecalculateBounds();
+			}
 		}
 	}
 
-    private void SavePrefab(Transform selected, GameObject prefabAsset)
+	private void AlignChildrenPivotToRootRotation(Transform selected)
+	{
+		for (var i = 0; i < selected.childCount; i++)
+		{
+			var child = selected.GetChild(i);
+			var originalPosition = child.position;
+			var originalRotation = child.rotation;
+			var originalScale = child.localScale;
+
+			var deltaRotation = selected.rotation * Quaternion.Inverse(originalRotation);
+
+			if (child.TryGetComponent(out ProBuilderMesh proBuilderMesh))
+			{
+				var vertices = proBuilderMesh.positions.ToArray();
+
+				for (int j = 0; j < vertices.Length; j++)
+				{
+					var worldVertex = child.TransformPoint(vertices[j]);
+					worldVertex = originalPosition + deltaRotation * (worldVertex - originalPosition);
+					vertices[j] = child.InverseTransformPoint(worldVertex);
+				}
+
+				proBuilderMesh.positions = vertices;
+				proBuilderMesh.ToMesh();
+				proBuilderMesh.Refresh();
+			}
+			else if (child.TryGetComponent(out MeshFilter meshFilter))
+			{
+				var vertices = meshFilter.sharedMesh.vertices;
+
+				for (int j = 0; j < vertices.Length; j++)
+				{
+					var worldVertex = child.TransformPoint(vertices[j]);
+					worldVertex = originalPosition + deltaRotation * (worldVertex - originalPosition);
+					vertices[j] = child.InverseTransformPoint(worldVertex);
+				}
+
+				meshFilter.sharedMesh.vertices = vertices;
+				meshFilter.sharedMesh.RecalculateBounds();
+			}
+
+			child.rotation = selected.rotation;
+			child.position = originalPosition;
+		}
+	}
+
+	private void SavePrefab(Transform selected, GameObject prefabAsset)
     {
 		Undo.RegisterCompleteObjectUndo(selected.gameObject, "Save Prefab");
 
