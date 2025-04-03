@@ -9,11 +9,15 @@ public class PivotEditor : EditorWindow
 {
     private Vector3 _min;
     private Vector3 _max;
+    private Vector3 _align;
     private Vector3[] _points;
     private Vector3[] _aligns;
     private int _selectedLevel;
     private int _selectedCorner;
-    private bool _alignChildrenToRoot;
+    private bool _alignChildrenToRootPosition;
+    private bool _alignChildrenToRootRotation;
+    private bool _enabledCustomPivot;
+    private Vector3 _pivotOffset;
 
 	private readonly string[] _levels =
     {
@@ -33,9 +37,7 @@ public class PivotEditor : EditorWindow
     [MenuItem("Tools/Pivot Editor")]
     public static void ShowWindow()
     {
-        var window = GetWindow<PivotEditor>();
-        window.titleContent = new GUIContent("Pivot Editor");
-        window.Show();
+        GetWindow<PivotEditor>("Pivot Editor").Show();
     }
 
     private void OnEnable()
@@ -66,8 +68,10 @@ public class PivotEditor : EditorWindow
             return;
         }
 
-        GUILayout.BeginHorizontal();
-        GUILayout.BeginVertical();
+		EditorGUI.BeginDisabledGroup(_enabledCustomPivot);
+		EditorGUILayout.BeginHorizontal();
+
+		EditorGUILayout.BeginVertical();
         GUILayout.Label("Select level (Y):", EditorStyles.boldLabel);
         EditorGUI.BeginChangeCheck();
         var selectedLevel = GUILayout.SelectionGrid(_selectedLevel, _levels, 1);
@@ -76,9 +80,9 @@ public class PivotEditor : EditorWindow
             _selectedLevel = selectedLevel;
             DrawPivot();
         }
-        GUILayout.EndVertical();
-            
-        GUILayout.BeginVertical();
+		EditorGUILayout.EndVertical();
+
+		EditorGUILayout.BeginVertical();
         GUILayout.Label("Select corner (XZ):", EditorStyles.boldLabel);
         EditorGUI.BeginChangeCheck();
         var selectedCorner = GUILayout.SelectionGrid(_selectedCorner, _corners, 3);
@@ -87,22 +91,32 @@ public class PivotEditor : EditorWindow
             _selectedCorner = selectedCorner;
             DrawPivot();
         }
-        GUILayout.EndVertical();
+		EditorGUILayout.EndVertical();
 
-		GUILayout.EndHorizontal();
+		EditorGUILayout.EndHorizontal();
+		EditorGUI.EndDisabledGroup();
 
-		_alignChildrenToRoot = GUILayout.Toggle(_alignChildrenToRoot, "Align Children To Root");
+		EditorGUI.BeginDisabledGroup(!_enabledCustomPivot);
+		_pivotOffset = EditorGUILayout.Vector3Field("Pivot Position", _pivotOffset);
+		EditorGUI.EndDisabledGroup();
+
+		_enabledCustomPivot = EditorGUILayout.Toggle("Custom Pivot", _enabledCustomPivot);
+		_alignChildrenToRootPosition = EditorGUILayout.Toggle("Align Children To Root Position", _alignChildrenToRootPosition);
+		_alignChildrenToRootRotation = EditorGUILayout.Toggle("Align Children To Root Rotation", _alignChildrenToRootRotation);
+
+		EditorGUILayout.Separator();
 
 		if (GUILayout.Button("Change and Save"))
         {
             Undo.IncrementCurrentGroup();
             Undo.SetCurrentGroupName(UNDO_GROUP_NAME);
-            int group = Undo.GetCurrentGroup();
 
-			var align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
-			var shift = AlignPivot(selected, align);
+            CalcPivot(selected);
 
-            if (_alignChildrenToRoot)
+            var group = Undo.GetCurrentGroup();
+			var shift = AlignPivot(selected, _align);
+
+            if (_alignChildrenToRootPosition)
             {
                 AlignChildenPivotToRoot(selected);
             }
@@ -114,6 +128,8 @@ public class PivotEditor : EditorWindow
                 SavePrefab(selected, prefabAsset.gameObject);
                 ApplyChangesInScene(selected, prefabAsset.gameObject, shift);
             }
+
+            _pivotOffset = Vector3.zero;
 
             Undo.CollapseUndoOperations(group);
 		}
@@ -148,14 +164,9 @@ public class PivotEditor : EditorWindow
 
         CalcAligns();
         DrawAligns();
-            
-        DrawPivot();
 
-        Handles.color = Color.magenta;
-        foreach (var obj in selected.GetComponentsInChildren<Transform>(true))
-        {
-            Handles.DrawLine(_aligns[_selectedLevel * _corners.Length + _selectedCorner], obj.position);
-        }
+        CalcPivot(selected);
+        DrawPivot();
             
         sceneView.Repaint();
     }
@@ -262,12 +273,22 @@ public class PivotEditor : EditorWindow
         }
     }
 
+    private void CalcPivot(Transform selected)
+    {
+		if (_enabledCustomPivot)
+		{
+			_align = selected.position + selected.rotation * _pivotOffset;
+		}
+		else
+		{
+			_align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
+		}
+	}
+
     private void DrawPivot()
     {
-        var align = _aligns[_selectedLevel * _corners.Length + _selectedCorner];
-            
-        Handles.color = Color.red;
-        Handles.DrawWireCube(align, Vector3.one * 0.1f);
+		Handles.color = Color.red;
+        Handles.DrawWireCube(_align, Vector3.one * 0.1f);
     }
         
     private Vector3 AlignPivot(Transform selected, Vector3 align)
